@@ -65,6 +65,36 @@ def cmd_logs(args):
     return 0
 
 
+def cmd_run_waiter(args):
+    from . import waiter
+
+    return waiter.run_waiter(args.pane_id)
+
+
+def cmd_retry_now(args):
+    import time
+
+    from . import waiter
+
+    pane_id = args.pane or os.environ.get("HERDR_PANE_ID")
+    if not pane_id:
+        print("대상 pane을 알 수 없습니다 (--pane 또는 $HERDR_PANE_ID 필요).", file=sys.stderr)
+        return 2
+    marker = waiter.read_marker(pane_id)
+    if not marker:
+        print(f"예약된 재시도가 없습니다: {pane_id}", file=sys.stderr)
+        return 1
+    marker["wake_at"] = time.time()
+    waiter.write_marker(pane_id, marker)
+    if not waiter._pid_alive(marker.get("waiter_pid")):
+        pid = waiter.spawn_waiter(pane_id)
+        if pid:
+            marker["waiter_pid"] = pid
+            waiter.write_marker(pane_id, marker)
+    print(f"즉시 재시도 예약: {pane_id}")
+    return 0
+
+
 def _todo(name, task):
     def handler(args):
         print(f"'{name}'는 아직 구현 전입니다 ({task}).", file=sys.stderr)
@@ -86,12 +116,15 @@ def build_parser():
 
     sub.add_parser("install", help="Claude Code 훅 등록 (T6)").set_defaults(func=_todo("install", "T6"))
     sub.add_parser("uninstall", help="훅 제거 (T6)").set_defaults(func=_todo("uninstall", "T6"))
-    sub.add_parser("retry-now", help="즉시 재시도 (T5)").set_defaults(func=_todo("retry-now", "T5"))
     sub.add_parser("hook", help="(내부) 훅 진입점 (T6)").set_defaults(func=_todo("hook", "T6"))
 
-    p_waiter = sub.add_parser("run-waiter", help="(내부) 대기 프로세스 본체 (T5)")
+    p_retry = sub.add_parser("retry-now", help="예약 대기를 무시하고 즉시 재시도")
+    p_retry.add_argument("--pane", help="대상 pane id (기본: $HERDR_PANE_ID)")
+    p_retry.set_defaults(func=cmd_retry_now)
+
+    p_waiter = sub.add_parser("run-waiter", help="(내부) 대기 프로세스 본체")
     p_waiter.add_argument("pane_id")
-    p_waiter.set_defaults(func=_todo("run-waiter", "T5"))
+    p_waiter.set_defaults(func=cmd_run_waiter)
 
     return parser
 

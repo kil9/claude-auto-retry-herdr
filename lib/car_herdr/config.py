@@ -21,6 +21,8 @@ DEFAULTS = {
     "retryMessage": "Continue where you left off. The previous attempt was rate limited.",
     # overloaded(529/미상) 지수 백오프 (초). 마지막 값에서 상한 고정
     "overloadedBackoffSeconds": [30, 60, 120, 300],
+    # 같은 pane에 이 간격(초) 안에는 재주입하지 않음 (즉시 재발 루프 방지)
+    "minRetryIntervalSeconds": 60,
     # 주입 직전 대상 pane foreground 프로세스가 claude인지 확인할지
     "verifyForegroundProcess": True,
 }
