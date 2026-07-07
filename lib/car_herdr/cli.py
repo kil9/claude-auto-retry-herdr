@@ -65,6 +65,85 @@ def cmd_logs(args):
     return 0
 
 
+def cmd_hook(args):
+    """(내부) Claude Code Stop 훅 진입점. stdin으로 훅 JSON을 받는다.
+
+    무슨 일이 있어도 0으로 종료해 Claude 세션을 막지 않는다.
+    """
+    from . import detect, log, waiter
+
+    try:
+        raw = sys.stdin.read()
+        data = json.loads(raw) if raw.strip() else {}
+    except (json.JSONDecodeError, OSError):
+        data = {}
+    try:
+        if data.get("agent_id"):  # 서브에이전트 이벤트는 무시(메인 세션만)
+            return 0
+        transcript = data.get("transcript_path")
+        session = data.get("session_id")
+        pane = os.environ.get("HERDR_PANE_ID")
+        if not transcript or not pane:
+            return 0
+        det = detect.scan_transcript_tail(transcript)
+        if det is None or det.is_subagent:
+            return 0
+        if not det.retryable:
+            log.log(f"hook: 재시도 불가 에러({det.error}) 감지, 건너뜀 pane={pane}", component="hook")
+            return 0
+        msg = waiter.schedule_retry(pane, transcript, session, det)
+        log.log(f"hook: {det.error} 감지 → {msg} pane={pane}", component="hook")
+    except Exception as exc:  # 훅은 절대 세션을 막으면 안 됨
+        log.log(f"hook: 예외 무시 {exc!r}", component="hook")
+    return 0
+
+
+def _settings_targets(args):
+    from . import install
+
+    if getattr(args, "all_instances", False):
+        import glob
+
+        base = os.path.join(os.path.expanduser("~"), ".ccs", "instances")
+        paths = [install.resolve_settings_path(d) for d in glob.glob(os.path.join(base, "*"))]
+    elif getattr(args, "config_dir", None):
+        paths = [install.resolve_settings_path(d) for d in args.config_dir]
+    else:
+        paths = [install.resolve_settings_path()]
+    # realpath 기준 중복 제거(심볼릭 shared 공유 대비)
+    seen, out = set(), []
+    for p in paths:
+        if p not in seen:
+            seen.add(p)
+            out.append(p)
+    return out
+
+
+def cmd_install(args):
+    from . import install
+
+    rc = 0
+    print(f"훅 스크립트: {install.HOOK_SCRIPT}")
+    for path in _settings_targets(args):
+        status, message = install.install(path)
+        print(f"  [{status}] {message}")
+        if status == "error":
+            rc = 1
+    return rc
+
+
+def cmd_uninstall(args):
+    from . import install
+
+    rc = 0
+    for path in _settings_targets(args):
+        status, message = install.uninstall(path)
+        print(f"  [{status}] {message}")
+        if status == "error":
+            rc = 1
+    return rc
+
+
 def cmd_run_waiter(args):
     from . import waiter
 
@@ -114,9 +193,21 @@ def build_parser():
     p_logs.add_argument("--date", help="YYYY-MM-DD (기본: 오늘)")
     p_logs.set_defaults(func=cmd_logs)
 
-    sub.add_parser("install", help="Claude Code 훅 등록 (T6)").set_defaults(func=_todo("install", "T6"))
-    sub.add_parser("uninstall", help="훅 제거 (T6)").set_defaults(func=_todo("uninstall", "T6"))
-    sub.add_parser("hook", help="(내부) 훅 진입점 (T6)").set_defaults(func=_todo("hook", "T6"))
+    def add_target_opts(p):
+        p.add_argument("--config-dir", action="append", metavar="DIR",
+                       help="대상 CLAUDE_CONFIG_DIR (반복 가능, 기본: $CLAUDE_CONFIG_DIR)")
+        p.add_argument("--all-instances", action="store_true",
+                       help="~/.ccs/instances/* 전체에 적용")
+
+    p_install = sub.add_parser("install", help="Claude Code Stop 훅 등록")
+    add_target_opts(p_install)
+    p_install.set_defaults(func=cmd_install)
+
+    p_uninstall = sub.add_parser("uninstall", help="훅 제거")
+    add_target_opts(p_uninstall)
+    p_uninstall.set_defaults(func=cmd_uninstall)
+
+    sub.add_parser("hook", help="(내부) Stop 훅 진입점").set_defaults(func=cmd_hook)
 
     p_retry = sub.add_parser("retry-now", help="예약 대기를 무시하고 즉시 재시도")
     p_retry.add_argument("--pane", help="대상 pane id (기본: $HERDR_PANE_ID)")
