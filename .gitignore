@@ -1,0 +1,12 @@
+# logs & runtime state
+logs/
+*.log
+.car-herdr/
+
+# node (구현 언어 확정 전 대비)
+node_modules/
+dist/
+
+# editor / os
+.DS_Store
+*.swp
