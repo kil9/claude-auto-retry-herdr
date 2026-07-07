@@ -49,13 +49,18 @@ pane 안에서 쓰려면 tmux 세션을 한 겹 더 끼워야 한다. 이 프로
    꼬리를 읽어 레이트리밋/`API Error 429/529`/`5-hour limit reached ... resets`
    패턴을 찾는다. 있으면 리셋 시각을 파싱해 마커를 남긴다. 오탐이 적고 이벤트
    기반이라 폴링 낭비가 없다.
-2. herdr 상태 (2차): claude integration 이 레이트리밋을 `blocked` 로 보고하는지
-   확인(연구 과제 T1). 보고한다면 `herdr agent wait --status blocked` 로 훅 없이도
-   트리거 가능.
+2. ~~herdr 상태 (2차)~~: **T1에서 폐기.** herdr claude 상태 판정(`claude.toml`)은
+   인터랙티브 프롬프트만 `blocked`로 보며 레이트리밋은 상태로 노출하지 않는다.
+   `herdr agent wait --status blocked`로는 못 잡는다. (근거: `docs/detection-notes.md`)
 3. pane 스크레이프 (폴백): 훅이 못 잡는 경로(예: 훅 이벤트가 안 뜨는 실패)를 위해
    `herdr pane read` 로 주기 폴링하며 동일 패턴을 매칭. 상용 도구가 쓰는 방식과 동일.
 
-MVP는 1번(훅)만으로 충분히 동작하게 만들고, 2/3은 이후 단계에서 보강한다.
+MVP는 1번(훅)만으로 충분히 동작하게 만들고, 3(스크레이프 폴백)은 이후 단계에서
+보강한다. 2(herdr 상태)는 T1에서 불가로 확인돼 제외.
+
+트리거 신호(T1 실측): transcript JSONL에 `isApiErrorMessage:true` 합성 assistant 항목이
+남고, `error` 필드로 유형이 갈린다(`rate_limit`/429 → 대기, `server_error`/`unknown` →
+overloaded 백오프, `authentication_failed`/`model_not_found` → 재시도 안 함).
 
 ### 실행 형태: 훅 + 분리형 대기 프로세스 (MVP) → 데몬 (Phase 2)
 
@@ -76,9 +81,10 @@ MVP는 1번(훅)만으로 충분히 동작하게 만들고, 2/3은 이후 단계
 
 ### 리셋 시각 파싱
 
-- `5-hour limit reached - resets 3pm (UTC)` 같은 메시지에서 시각/타임존을 뽑아
-  대기 시간을 계산. IANA 타임존과 서머타임을 고려. 파싱 실패 시 `fallbackWaitHours`
-  (기본 5시간) 뒤 재시도.
+- 실측 형식은 `You've hit your session limit · resets 8pm (Asia/Seoul)` (T1). 시각은
+  12시간제 `h[:mm](am|pm)`, **타임존은 UTC가 아니라 로컬 IANA 존이 그대로 명시된다.**
+  TZ 문자열을 IANA로 해석해 다음 발생 시각을 계산(과거면 +1일 롤오버). 파싱 실패 시
+  `fallbackWaitHours`(기본 5시간) 뒤 재시도.
 - `API Error: 529`(overloaded)류는 리셋 시각이 없으므로 짧은 백오프(지수, 상한)로 재시도.
 
 ## 구성 요소
@@ -114,10 +120,10 @@ claude-auto-retry-herdr/
 
 ## 태스크 (순차 실행, 태스크별 커밋)
 
-- T1 연구: Claude Code가 레이트리밋 시 어떤 훅 이벤트를 언제 발생시키는지, transcript
-  JSONL에 한도 메시지가 어떤 형태로 기록되는지, herdr integration 이 그걸 `blocked`
-  로 보고하는지 실측 정리. `CLAUDE_CONFIG_DIR`가 인스턴스별로 갈리는 점(.ccs/instances/*)
-  도 함께 확인. 결과를 `docs/detection-notes.md` 로.
+- [x] T1 연구: transcript JSONL 신호(`isApiErrorMessage`/`error`/`apiErrorStatus`),
+  에러 taxonomy, 리셋 파싱 형식(로컬 IANA TZ), herdr blocked 경로 불가, config dir
+  분리 무관(절대 transcript_path) 실측 완료. → `docs/detection-notes.md`. 남은 실측
+  항목: `Stop` 훅이 API 에러 시 실제 발화하는지(T7 라이브 검증).
 - T2 스캐폴딩: 저장소 구조/언어 확정, `bin/car-herdr` 골격, config 로더, 로깅.
 - T3 감지: transcript 꼬리 파서 + 패턴 매칭 + 리셋 시각/타임존 파싱, 단위 테스트.
 - T4 주입: `herdr pane` 래퍼(send-text/send-keys/process-info 안전장치) 구현, 실제
