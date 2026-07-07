@@ -127,6 +127,11 @@ def schedule_retry(pane_id, transcript_path, session_id, detection, cfg=None, no
     marker = read_marker(pane_id)
     retries = 0
     if marker:
+        # 살아있는 대기 프로세스가 아직 예약 시각 전이면 그대로 둔다.
+        # (훅 반복 발화 / watch 폴링이 wake_at을 계속 밀어내는 것을 방지)
+        if _pid_alive(marker.get("waiter_pid")) and now < marker.get("wake_at", 0):
+            delay = int(marker["wake_at"] - now)
+            return f"already pending: wake_in={delay}s retries={marker.get('retries', 0)}"
         last = marker.get("last_error_at", 0)
         # 최근 시도가 최소 간격 안이면 streak로 이어 cap을 적용, 아니면 리셋
         if now - last < max(cfg.minRetryIntervalSeconds, 0):

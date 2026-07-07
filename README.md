@@ -66,6 +66,20 @@ bin/car-herdr logs          # 오늘 로그 (--date YYYY-MM-DD)
 bin/car-herdr retry-now [--pane ID]   # 예약 대기를 무시하고 즉시 재시도
 ```
 
+### watch (폴백 데몬, 선택)
+
+훅이 어떤 이유로든 발화하지 않아도 커버하려면 watch 데몬을 서버당 하나 띄운다.
+`herdr agent list`로 claude pane을 열거하고 각 세션 transcript를 주기적으로 직접
+스캔해 레이트리밋을 잡고, 재시작/크래시로 고아가 된 마커의 대기 프로세스도 되살린다.
+
+```sh
+bin/car-herdr watch          # 포그라운드 루프 (setsid/nohup으로 백그라운드화)
+bin/car-herdr watch --once   # 1회만 폴링 (복구/점검용)
+```
+
+훅과 watch는 함께 떠 있어도 안전하다(중복 스케줄 방지 가드 내장). 훅만으로 충분하면
+watch는 없어도 된다.
+
 ## 설정
 
 `~/.config/car-herdr/config.json` (전 필드 optional, 누락 시 기본값). 경로는
@@ -77,6 +91,7 @@ bin/car-herdr retry-now [--pane ID]   # 예약 대기를 무시하고 즉시 재
   "marginSeconds": 120,          // 리셋 시각 이후 여유
   "fallbackWaitHours": 5,        // 리셋 시각 파싱 실패 시 대기
   "pollIntervalSeconds": 5,      // 대기 프로세스 폴링 간격
+  "watchIntervalSeconds": 20,    // watch 데몬 폴링 간격
   "minRetryIntervalSeconds": 60, // 이 간격 안 재발은 streak로 묶어 cap 적용
   "retryMessage": "Continue where you left off. The previous attempt was rate limited.",
   "overloadedBackoffSeconds": [30, 60, 120, 300], // 529 지수 백오프
@@ -91,14 +106,14 @@ bin/car-herdr retry-now [--pane ID]   # 예약 대기를 무시하고 즉시 재
 
 - **메인 세션만** 재시도한다. 서브에이전트(`isSidechain`) 레이트리밋은 대상 밖.
 - `Stop` 훅이 레이트리밋 시 실제 발화하는지는 라이브 세션에서 확인이 필요하다
-  (본 저장소는 replay로 E2E 검증). 발화하지 않는 경로는 pane 스크레이프 폴백(Phase 2,
-  T8)으로 보강 예정.
+  (본 저장소는 replay로 E2E 검증). 발화하지 않아도 `watch` 데몬(transcript 직접 폴링)이
+  폴백으로 잡는다.
 - tmux 지원 안 함(상용 도구가 담당). Claude Code 외 에이전트 미지원.
 - herdr 자체 기능(pane 관리 등)은 재구현하지 않는다.
 
 ## 개발
 
 ```sh
-python3 -m unittest discover -s tests   # 단위 테스트
+python3 -m unittest discover -s tests   # 단위 테스트 (39개)
 tests/e2e_smoke.sh                      # herdr 안에서 전체 체인 E2E (수동)
 ```

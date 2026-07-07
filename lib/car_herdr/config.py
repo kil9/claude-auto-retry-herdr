@@ -15,8 +15,10 @@ DEFAULTS = {
     "marginSeconds": 120,
     # 리셋 시각 파싱 실패 시 대기 시간 (시간)
     "fallbackWaitHours": 5,
-    # 폴백 스크레이프/데몬 폴링 간격 (초)
+    # 대기 프로세스 폴링 간격 (초)
     "pollIntervalSeconds": 5,
+    # watch 데몬 폴링 간격 (초). 훅이 못 잡은 레이트리밋을 이 주기로 재확인
+    "watchIntervalSeconds": 20,
     # 재시도 때 주입할 메시지
     "retryMessage": "Continue where you left off. The previous attempt was rate limited.",
     # overloaded(529/미상) 지수 백오프 (초). 마지막 값에서 상한 고정

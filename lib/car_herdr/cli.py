@@ -150,6 +150,12 @@ def cmd_run_waiter(args):
     return waiter.run_waiter(args.pane_id)
 
 
+def cmd_watch(args):
+    from . import watch
+
+    return watch.run_watch(once=args.once)
+
+
 def cmd_retry_now(args):
     import time
 
@@ -216,6 +222,10 @@ def build_parser():
     p_waiter = sub.add_parser("run-waiter", help="(내부) 대기 프로세스 본체")
     p_waiter.add_argument("pane_id")
     p_waiter.set_defaults(func=cmd_run_waiter)
+
+    p_watch = sub.add_parser("watch", help="폴백 데몬: 훅이 못 잡은 레이트리밋 재확인 + 마커 복구")
+    p_watch.add_argument("--once", action="store_true", help="1회만 폴링하고 종료")
+    p_watch.set_defaults(func=cmd_watch)
 
     return parser
 
