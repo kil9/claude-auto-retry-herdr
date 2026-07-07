@@ -16,7 +16,11 @@ _TMP = tempfile.mkdtemp(prefix="car-herdr-test-")
 os.environ["CAR_HERDR_STATE_DIR"] = _TMP
 os.environ["CAR_HERDR_CONFIG_DIR"] = _TMP  # 설정 파일 없음 → 기본값
 
-from car_herdr import config, detect, waiter  # noqa: E402
+from car_herdr import config, detect, status, waiter  # noqa: E402
+
+# 단위 테스트는 herdr를 호출하지 않는다: 상태바 표시를 no-op으로.
+status.set_scheduled = lambda *a, **k: None
+status.clear = lambda *a, **k: None
 
 
 def det(error, strategy, text=""):

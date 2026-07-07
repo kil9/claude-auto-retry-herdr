@@ -16,7 +16,7 @@ import subprocess
 import sys
 import time
 
-from . import config, detect, inject, log, paths
+from . import config, detect, inject, log, paths, status
 
 _COMPONENT = "waiter"
 _REPO_BIN = os.path.realpath(
@@ -157,6 +157,7 @@ def schedule_retry(pane_id, transcript_path, session_id, detection, cfg=None, no
         if pid:
             data["waiter_pid"] = pid
             write_marker(pane_id, data)
+    status.set_scheduled(pane_id, wake_at, detection.strategy, now=now)
     delay = max(0, int(wake_at - now))
     return f"scheduled: strategy={detection.strategy} wake_in={delay}s retries={retries}"
 
@@ -181,6 +182,12 @@ def spawn_waiter(pane_id):
 
 # ---- 대기 프로세스 본체 ------------------------------------------------------
 
+def _finish(pane_id):
+    """대기 종료 공통 정리: 상태바 + 마커 제거."""
+    status.clear(pane_id)
+    clear_marker(pane_id)
+
+
 def run_waiter(pane_id):
     """자고 → 안전장치 확인 → 주입 → 마커 정리. 종료 조건마다 로그."""
     cfg = config.load()
@@ -190,6 +197,7 @@ def run_waiter(pane_id):
         marker = read_marker(pane_id)
         if not marker:
             log.log(f"marker 사라짐, 종료 pane={pane_id}", component=_COMPONENT)
+            status.clear(pane_id)
             return 0
         now = time.time()
         wake = marker.get("wake_at", now)
@@ -199,20 +207,20 @@ def run_waiter(pane_id):
 
         if marker.get("retries", 0) >= cfg.maxRetries:
             log.log(f"cap 도달, 포기 pane={pane_id}", component=_COMPONENT)
-            clear_marker(pane_id)
+            _finish(pane_id)
             return 0
         if not inject.pane_exists(pane_id):
             log.log(f"pane 사라짐, 포기 pane={pane_id}", component=_COMPONENT)
-            clear_marker(pane_id)
+            _finish(pane_id)
             return 0
         det = detect.scan_transcript_tail(marker.get("transcript_path", ""))
         if det is None:
             log.log(f"이미 해소됨(정상 진행), 종료 pane={pane_id}", component=_COMPONENT)
-            clear_marker(pane_id)
+            _finish(pane_id)
             return 0
         if cfg.verifyForegroundProcess and not inject.foreground_is_claude(pane_id):
             log.log(f"foreground가 claude 아님, 포기 pane={pane_id}", component=_COMPONENT)
-            clear_marker(pane_id)
+            _finish(pane_id)
             return 0
 
         ok, reason = inject.inject_message(
@@ -226,7 +234,7 @@ def run_waiter(pane_id):
                 f"재시도 주입 성공 pane={pane_id} retries={marker['retries']}",
                 component=_COMPONENT,
             )
-            clear_marker(pane_id)
+            _finish(pane_id)
             return 0
         # 주입 실패(일시적): 짧은 백오프 후 cap 내 재시도
         marker["wake_at"] = now + backoff_seconds(marker["retries"], cfg)
