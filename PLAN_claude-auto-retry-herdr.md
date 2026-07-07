@@ -102,8 +102,10 @@ claude-auto-retry-herdr/
   README.md
 ```
 
-구현 언어는 herdr CLI를 셸로 호출하는 특성상 Node.js(기존 auto-retry 자산 참고 용이)
-또는 순수 셸+python 중 택1. T2에서 확정.
+구현 언어는 **python3(표준 라이브러리만)로 확정**(T2). herdr integration 훅이 이미
+python3를 하드 의존하므로 추가 런타임이 없고, JSONL 파싱·타임존(zoneinfo/DST) 계산에
+유리하다. 진입점(`bin/car-herdr`)과 훅(`hooks/car-herdr-hook.sh`)만 얇은 bash 래퍼.
+실제 구조는 `lib/car_herdr/{paths,config,log,detect,inject,waiter,install,cli}.py`.
 
 ## 설정 (`~/.config/car-herdr/config.json`, 전 필드 optional)
 
@@ -124,27 +126,29 @@ claude-auto-retry-herdr/
   에러 taxonomy, 리셋 파싱 형식(로컬 IANA TZ), herdr blocked 경로 불가, config dir
   분리 무관(절대 transcript_path) 실측 완료. → `docs/detection-notes.md`. 남은 실측
   항목: `Stop` 훅이 API 에러 시 실제 발화하는지(T7 라이브 검증).
-- T2 스캐폴딩: 저장소 구조/언어 확정, `bin/car-herdr` 골격, config 로더, 로깅.
-- T3 감지: transcript 꼬리 파서 + 패턴 매칭 + 리셋 시각/타임존 파싱, 단위 테스트.
-- T4 주입: `herdr pane` 래퍼(send-text/send-keys/process-info 안전장치) 구현, 실제
-  pane 대상 스모크 테스트.
-- T5 대기 프로세스: `setsid` 분리형 waiter, 마커 파일 read/clear, 재시도 상한.
-- T6 훅 배선: `hooks/car-herdr-hook.sh` + `car-herdr install`(herdr 관리 훅 옆에
-  커스텀 훅을 얹고, 여러 `CLAUDE_CONFIG_DIR` 처리), `uninstall`.
-- T7 E2E 검증: 레이트리밋을 인위적으로 재현(또는 로그 리플레이)해 감지→대기→주입
-  전체 흐름을 herdr pane에서 확인.
-- T8 폴백/상태 (선택, Phase 2): 스크레이프 폴백 + herdr 상태 트리거, 데몬화,
-  `pane report-metadata` 로 상태바 표시.
-- T9 문서: README 사용법, 설치/제거, 설정, 한계.
+- [x] T2 스캐폴딩: python3 확정, `bin/car-herdr` + 얇은 hook 래퍼, config 로더, 로깅.
+- [x] T3 감지: transcript 꼬리 파서 + 유형 분기 + 리셋 시각/타임존 파싱, 단위 테스트 21개.
+- [x] T4 주입: `herdr pane` 래퍼(send-text/send-keys/process-info 안전장치), scratch
+  pane 스모크 테스트.
+- [x] T5 대기 프로세스: `setsid` 분리형 waiter, 마커 CRUD, cap/최소간격 정책, 테스트 34개.
+- [x] T6 훅 배선: `hooks/car-herdr-hook.sh` + `car-herdr install/uninstall`(멱등, herdr
+  관리 훅 보존, `--config-dir`/`--all-instances`, symlink realpath 중복 제거).
+- [x] T7 E2E 검증: `tests/e2e_smoke.sh` — Stop 훅 replay로 감지→대기→주입→정리 전
+  과정을 실제 herdr pane에서 확인(PASS). 남은 항목: 실제 레이트리밋 시 Stop 발화 여부는
+  라이브 확인 필요.
+- T8 폴백/상태 (선택, Phase 2): 스크레이프 폴백 + 데몬화 + `pane report-metadata`
+  상태바. (herdr 상태 트리거는 T1에서 불가로 확인돼 제외.)
+- [x] T9 문서: README 사용법/설치/제거/설정/한계.
 
 ## 열린 질문 / 연구 필요
 
-- Claude Code에 실패 전용 훅(StopFailure 류)이 실제로 있는지, 아니면 `Stop`에서
-  transcript로 판별해야 하는지 (T1).
-- 최신 Claude Code가 5시간 한도에 대해 자체 auto-wait/재개를 이미 하는 범위. 그
-  경우 이 도구는 자체 재개가 없는 케이스(하드 한도, 529, 세션 종료형)에 집중.
-- herdr에 이벤트 스트림 구독이 있는지, 없으면 데몬은 `agent list` 폴링으로 간다.
-- `pane send-text` 후 제출 키가 Enter 하나로 충분한지(붙여넣기 모드/줄바꿈 처리).
+- [해소] 실패 전용 훅: 별도 훅 없이 `Stop`에서 transcript로 판별한다(T1). 서브에이전트는
+  `SubagentStop`/`agent_id`로 구분해 제외.
+- [해소] `pane send-text` + `send-keys Enter` 한 번으로 제출 충분(T4/T5/T7 스모크 확인).
+- [남음] 실제 레이트리밋 시 `Stop`이 발화하는지 라이브 확인(로그로 관측). 안 되면 T8 폴백.
+- [남음] 최신 Claude Code가 5시간 한도에 대해 자체 auto-wait/재개를 하는 범위. 그 경우
+  이 도구는 자체 재개가 없는 케이스(하드 한도, 529, 세션 종료형)에 집중.
+- [T8] herdr 이벤트 스트림 구독 여부. 없으면 데몬은 `agent list` 폴링.
 
 ## 비목표
 
